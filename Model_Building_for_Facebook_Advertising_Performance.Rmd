@@ -1,0 +1,721 @@
+---
+title: "Model Building for Facebook Advertising Performance"
+author: "Cheng Jiaqi, Yu Chuhan, Wen Siyuan"
+date: "7/29/2019"
+output:
+  html_document: 
+    theme: readable
+  pdf_document: default
+urlcolor: cyan
+---
+
+# **1 INTRODUCTION**
+In the contemporary data age, online advertising has received increasing attention. In this project, we will use the dataset [`dataset_Facebook`](dataset_Facebook.csv). Our group discovered the dataset on UCI website (Center for Machine Learning and Intelligent Systems) under the business category.
+
+## **1.1 Taking a Close Look at the Data**
+
+The dataset contains detailed descriptions of the posts published during the year of 2014 on Facebook of a renowned cosmetics brand. To fully evaluate each post, the dataset collects 19 different variables: 
+
+- `Page total likes` - Number of people who have liked the company's facebook page when the post was published
+- `Category` - Type of campaign performed by the company: 
+  - 1 = action (special offers and contests)
+  - 2 = product (direct advertisement, explit brand content)
+  - 3 = inspiration (non-explicit brand related content)
+- `Type` - Type of the advertisement 
+  - Link 
+  - Photo 
+  - Status 
+  - Video
+- `Post.Month` - Month the Post was published
+- `Post.Weekday` - Weekday the Post was published
+- `Post.Hour` - Hour the Post was published
+- `Paid` - Whether or not has the company paid to Facebook for advertising
+  - 0 = non-paid
+  - 1 = paid
+- `Lifetime.Post.Total.Reach` - Number of unique users who saw an advertisement
+- `Lifetime.Post.Total.Impressions` - Whether or not the post is clicked open, user may see impressions of a post, for example, a user may see it from the News or their firends' share
+- `Lifetime.Engaged.Users` - Number of unique users who clicked in an advertisement
+- `Lifetime.Post.Consumers` - Number of people who clicked in an advertisement
+- `Lifetime.Post.Consumptions` - Number of clicks in an advertisement
+- `Lifetime.Post.Impressions.by.people.who.have.liked.your.Page` - Number of impressions from who "liked" the page
+- `Lifetime.Post.reach.by.people.who.like.your.Page` - Number of unique users who viewed the advertisement because they "liked" the page
+- `Lifetime.People.who.have.liked.your.Page.and.engaged.with.your.post` - Number of unique users who liked the page and clicked anywhere in the advertisement
+- `comment` - Number of coments on the advertisement
+- `like` - Number of likes in the advertisement
+- `share` - Number of shares of the advertisement
+- `Total.Interactions` - Sum of `comment`, `like`, and `share` in the advertisement
+
+## **1.2 Introduction to our Objects**
+
+Our group believe this dataset a very interesting source to be analyzed because it includes many the potential features affecting one company's brand building over online social media. Nowaydays, online social medias has become a great force in advertising industry. Online advertising becomes an effective media for companies to reach their potential consumers, especially if the company wants to sell its products to the younger generation.
+
+By analyzing this data, we are able to observe what kind of online advertisements are able to capture potential consumers' attention. We expect the result of the analysis to be able to reflect consumer psychology on some levels. We also assume the findings would give some hints to companies' marketing departments in posting advertisements.
+
+We separate the 19 variables into two groups: variables that reflects the characteristics of the advertising post and variables that reflects potential consumers' feedback. Here, we are going to investigate the relationship between those variables. Especially, we are going to fo focus on the potential influence brought by `paid` and `type` variables on users' feedback. 
+
+## **1.3 Introduction to our Methods**
+
+First, since the name of those variables are extremely long, we would transform them into shorter variales. Then we would like to choose the response variables indicating the popularity. 
+
+We discovered `Lifetime.People.who.have.liked.your.Page.and.engaged.with.your.post` and `Lifetime.Post.Consumers` to be great responses indicating the popularity of each model. The good thing about the dataset is that it already included many features of one piece of advertisement. The bad is that we are not able to detect the content quality of any advertisement from the dataset. We are willing to provide a model about how to make popular advertisements. However, the predictors may lose their significance while the posts are of low qualiy. This might be because that the company did not focus very much on Facebook-advertising in the beginning so that the page did not have posts of good contents or enough followers. So we generally look at the data with number of clicks by different users larger than 500, focusing on the unique users' clicks at a wide range of 500 ~ 4376(the maximum unique users' clicks). Thus, models will give us a inference about how to make posts when the content of each post and number of followers are qualified. Also, since the dataset contains some **"NA"** values, we need to take care of them while modelling.
+
+We will be applying methods including dummy variables, interactions, transformation of response, step searching, and so on. In our expectation, the finalized models will well, for example, accepting **Normality** and **Equal Variance** assumptions, no overfitting issues or multi-collinearity issues. We will be adjusting our models to achieve this goal.
+
+# **2 METHODS**
+
+## **2.0 Preparation: Helper Functions and Transforming the Variable Names**
+
+```{r}
+Facebook = read.csv("dataset_Facebook.csv")
+```
+
+```{r}
+diagnostics = function(model, pcol = "grey", lcol = "dodgerblue", alpha = 0.05, plotit = TRUE, testit = TRUE) {
+  par(mfrow = c(1, 2))
+  if (plotit == TRUE) {
+    par(mfrow = c(1, 2))
+    
+    plot(fitted(model), resid(model), col = pcol, pch = 20, xlab = "Fitted", ylab = "Residuals",
+         main ="Fitted VS Residuals")
+    abline(abline(h = 0, col = lcol, lwd = 2))
+    
+    qqnorm(resid(model), main = "Normal Q-Q Plot", col = pcol, pch = 20)
+    qqline(resid(model), col = lcol, lwd = 2)
+  }
+  if(testit == TRUE) {
+    p_val = shapiro.test(resid(model))$p.value
+    if (p_val > alpha) {
+      decision = "Fail to Reject"
+    } else {
+      decision = "Reject"
+    }
+    return(list(p_val = p_val, decision = decision))
+    
+  }
+}
+```
+
+Above is the function helping to build **Fitted VS Residuals** plot and **Normal Q-Q Plot**.
+
+```{r}
+library(MASS)
+library(lmtest)
+
+x1 = Facebook$Page.total.likes
+x2 = Facebook$Type
+x3 = Facebook$Category
+x4 = Facebook$Post.Month
+x5 = Facebook$Post.Weekday
+x6 = Facebook$Post.Hour
+x7 = Facebook$Paid
+x8 = Facebook$Lifetime.Post.Total.Reach
+x9 = Facebook$Lifetime.Post.Total.Impressions
+x10 = Facebook$Lifetime.Engaged.Users
+x11 = Facebook$Lifetime.Post.Consumers
+x12 = Facebook$Lifetime.Post.Consumptions
+x13 = Facebook$Lifetime.Post.Impressions.by.people.who.have.liked.your.Page
+x14 = Facebook$Lifetime.Post.reach.by.people.who.like.your.Page
+x15 = Facebook$Lifetime.People.who.have.liked.your.Page.and.engaged.with.your.post
+x16 = Facebook$comment
+x17 = Facebook$like
+x18 = Facebook$share
+x19 = Facebook$Total.Interactions
+
+Facebook_2 = data.frame(x1 = x1, x2 = x2, x3 = x3, x4 = x4, x5 = x5, x6 = x6, x7 = x7, x8 = x8,
+                        x9 = x9, x10 = x10, x11 = x11, x12 = x12, x13 = x13, x14 = x14, x15 = x15,
+                        x16 = x16, x17 = x17, x18 = x18, x19 = x19)
+
+Facebook_2 = data.frame(Facebook_2[-which(Facebook_2$x15 < 500), ])
+```
+
+Above is the function helping us to build a new dataset with shorter variable names. Our group generally focus on posts at a certain quality level. We focus on the posts with a number of unique users' clicks at range of 500 ~ 4320, as we mentioned in **1.3**. Also, we built some code to avoid **NA** variables in the future.
+
+## **2.1 Correlations**
+
+In this part, our team is looking at the pariwise correlations. By looking at the correlations, we will receive some hints for further model building.
+
+### **2.1.1 Exact Collinearity**
+
+First take a close look at the dataset. After reading the information from the dataset, we noticed that between variables `comment` (Number of coments on the advertisement), `like` (Number of likes in the advertisement), `share` (Number of shares of the advertisement), and `Total.Interactions` (Sum of `comment`, `like`, and `share` in the advertisement) exists an **exact collinearity**, since the variable `Total.Interactions` is the sum of the previous three variables.
+
+```{r}
+correlation_1 = na.omit(Facebook[, c("comment", "like", "share", "Total.Interactions")])
+round(cor(correlation_1), 2)
+```
+
+Especially, the `like` variable has an extremely high correlation with variable `Total.Interactions`, which means that the `like` variable explains a large amount of the variation in variable `Total.Interactions`. The correlation appears to be 1 when rounding to two decimals. Our interpretation of this phenomenon is that most users form an interaction with such an advertisement by **clicking on "like" button**. Comparably, they are less willingly to comment or share.
+
+### **2.1.2 Correlations within the Dataset**
+
+After explaining this exact collinearity in the model, we are willing to look at the correlation between each of the variables. In this way, we might be able to discover some relationship within the dataset to explore.
+
+```{r}
+pairs(Facebook_2[ , -c(1:7, 16:19)], col = "dodgerblue")
+```
+
+Interestingly, we observed a "branch feature" between variables $\ x_{15}$ and $\ x_{14}$ in the pairwise graph, at the right down corner, while the first variable `Lifetime.People.who.have.liked.your.Page.and.engaged.with.your.post` is a potential response in our future modeling process. It indicates the popularity of one piece of advertisement. Now take a close look at this graph.
+
+```{r}
+plot(Facebook_2$x15 ~ Facebook_2$x14, col = "dodgerblue", xlab = "People Reach",
+     ylab = "People Like and Engage" , cex = 1.5, pch = 20,
+     main = "People Like and Engage VS People Reach")
+```
+
+The "branch feature" is very significant. We will look into this further in the next modeling part.
+
+
+
+## **2.2 First Model**
+
+Our group will be modeling with two responses and will finally provide two models in this part. The first response would be$\ y_{1}$
+($x_{15}$ in the dataset), the number of users who liked and engaged in the post. The second response would be$\ y_{2}$($x_{11}$ in the dataset), the number of people who clicked in the post.
+
+### **2.2.1 Guesses about the "Branch" Feature**
+
+Recall the **"People Like and Engage VS People Reach"** graph we discovered in **2.1.2**, as the variable$\ x_{14}$ increases,$\ x_{15}$ also increases. However, some plots in the graph show a larger "slope" than the others, forming a branch in the graph. Again we look at the dataset, making some guesses about this feature. What come into my mind is that an interraction with dummy variables or factor variables might be leading to this phenomenon. We colored the plots with different colors according to some dummy variables and factor variables here.
+
+**Guess(a):**
+
+We first expected `Paid` variable ($x_{7}$, indicating whether or not has the company paid to Facebook for advertising) as the predictor interacted. Paying to Facebook will boost the number of users engaged, so `Paid` might be the point. Below we will be plotting a colored graph.
+
+```{r}
+plot(Facebook_2$x15 ~ Facebook_2$x14, col = Facebook_2$x7 + 1, xlab = "People Reach",
+     ylab = "People Like and Engage" , cex = 1.5, pch = 20,
+     main = "People Like and Engage VS People Reach, Colored with Paid")
+legend("topright", c("Paid", "Unpaid"), col = c(2, 1), pch = c(20, 20))
+```
+
+This graph above does not give us a clear pattern. Since the black plots and red plots are mixed with each other, the interaction between `Paid` and$\ x_{14}$ is not so significant in predicting$\ y_{1}$ according to the result. We look at the dataset and discover that Facebook pushes advertisements to those who did not press "like" button before. Since$\ x_{14}$ focuses on users who already "liked" the page, `Paid` variable may not be so helpful here.
+
+**Guess(b):**
+
+Now we make another guess. Is the variable `Type`($x_{2}$) indicating the type of the post, leading to the result? However, it includes four levels, the graph only have two branches. Still, we give it a try.
+
+```{r}
+plot(Facebook_2$x15 ~ Facebook_2$x14, col = as.numeric(Facebook_2$x2), xlab = "People Reach",
+     ylab = "People Like and Engage" , cex = 1.5, pch = 20,
+     main = "People Like and Engage VS People Reach, Colored with Type")
+legend("topright", c("Photo", "Video", "Link", "Status"), col = c(2, 4, 1, 3), pch = c(20, 20, 20, 20))
+```
+
+The result is very impressive, which is out of my expectation. The factor variable `Type`($x_{2}$) is deeply influencing the popularity. As we can see, the green plots which indicates the advertisement of type "Status" boosts much faster than those red plots indicating advertisement of type "Photo". This is consistent with our assumption before: Some factor variables are infuencing the slopes. 
+
+### **2.2.2 Building a Simple Interaction Model**
+
+Based on the graphfrom **2.2.1**, we start to build a simple model with interaction between variable$\ x_{2}$ and variable$\ x_{14}$, to be more specific, between the type of the advertisement and number of users reaching the post. Here we build our simple model:
+
+\[
+Y_{1} = \beta_0 + \beta_1 x_2 + \beta_2 x_{14} + \beta_3 x_{2Link} x_{14} + \beta_4 x_{2Photo} x_{14} + \beta_{5} x_{2Status} x_{14} + \beta_{6} x_{2Video} + \epsilon
+\]
+
+And take a look at the scatterplot of this model with fitted regression "lines":
+
+```{r}
+model_simple = lm(x15 ~ x14 * x2, data = Facebook_2)
+
+plot(Facebook_2$x15 ~ Facebook_2$x14, col = as.numeric(Facebook_2$x2), xlab = "People Reach",
+     ylab = "People Like and Engage" , cex = 1.5, pch = 20,
+     main = "People Like and Engage VS People Reach, Colored with Type")
+legend("topright", c("Photo", "Video", "Link", "Status"), col = c(2, 4, 1, 3), pch = c(20, 20, 20, 20))
+
+int_Link = coef(model_simple)[1]
+int_Photo = coef(model_simple)[3] + coef(model_simple)[1]
+int_Status = coef(model_simple)[4] + coef(model_simple)[1]
+int_Video = coef(model_simple)[5] + coef(model_simple)[1]
+
+slope_Link = coef(model_simple)[2]
+slope_Photo = coef(model_simple)[2] + coef(model_simple)[6]
+slope_Status = coef(model_simple)[2] + coef(model_simple)[7]
+slope_Video = coef(model_simple)[2] + coef(model_simple)[8]
+
+abline(int_Link, slope_Link, col = 1, lty = 1, lwd = 2)
+abline(int_Photo, slope_Photo, col = 2, lty = 2, lwd = 2)
+abline(int_Status, slope_Status, col = 3, lty = 3, lwd = 2)
+abline(int_Video, slope_Video, col = 4, lty = 4, lwd = 2)
+```
+
+### **Model Validation and Report of the Result**
+
+**Summary of model Coefficients**
+
+```{r}
+summary(model_simple)$coef
+```
+
+- **Above is the significance of each coefficient**.
+
+**LOOCV RMSE VS RMSE**
+
+```{r}
+sqrt(mean((resid(model_simple) / (1 - hatvalues(model_simple))) ^ 2))
+sqrt(mean(resid(model_simple) ^ 2))
+```
+
+- **LOOCV RMSE is infinity.**
+- **RMSE is 399.693.**
+
+**Breusch-Pagan Test of homoscedasticity**
+
+```{r}
+bptest(model_simple)
+```
+
+- **p-value of Breusch-Pagan test is 1.077e-08.**
+
+**Shapiro-Wilk Test of Normality**
+
+```{r}
+shapiro.test(resid(model_simple))
+```
+
+- **p-value of Shapiro-Wilk normality test is 2.509e-13.**
+
+**Fitted versus Residuals Plot and Q-Q Plots**
+
+```{r}
+diagnostics(model_simple, testit = FALSE)
+```
+
+### **Summary of the Simple Interaction Model**
+
+Clearly, this simple model doesn't handle the dataset well. The model does not meet normality and homoscedasticity assumptions according to **Breusch-Pagan Test** and **Shapiro-Wilk Test**. It has a large overfitting issue according to its **LOOCV RMSE**. But we do not give up. We have great confidence in adjusting this model because of the scatter-plot. 
+
+### **2.2.3 Adjusted Simple Model**
+
+The scatter-plot shows the importance of the interaction. Again, we look at the **Fitted versus Residuals Plot** and discover that the variance is getting larger as $Y$ increases. Thus, we put a log function on our response variable. Also, by looking at **Summary of model Coefficients**, we notice that the coefficients of $x_{14}$, $x_{2Photo}$, and $x_{2Video}$ are not so significant here. In fact, this makes sense because **the factor variable does not directly gives a boost to the popularity**. For example, an advertisement does not get 966 clicks simply because they posted a Video advertisement instead of a Link advertisement. The factor variable `Type` is influencing the response variable with other variables. In this way, we adjust the simple model a bit and receive an adjusted simple model here.
+
+\[
+log(Y_{1}) = \beta_0 + \beta_1 x_{2Link} x_{14} + \beta_2 x_{2Photo} x_{14} + \beta_{3} x_{2Status} x_{14} + \beta_{4} x_{2Video} + \epsilon
+\]
+
+```{r}
+model_simple_adj = lm(log(x15) ~ x14:x2, data = Facebook_2)
+```
+
+### **Model Validation and Report of the Result**
+
+**Summary of model Coefficients**
+
+```{r}
+summary(model_simple_adj)$coef
+```
+
+- **Above is the significance of each coefficient.**
+
+**LOOCV RMSE VS RMSE**
+
+```{r}
+sqrt(mean((resid(model_simple_adj) / (1 - hatvalues(model_simple_adj))) ^ 2))
+sqrt(mean(resid(model_simple_adj) ^ 2))
+```
+
+- **LOOCV RMSE is 0.2975271.**
+- **RMSE is 0.2767796.**
+
+**Breusch-Pagan Test of homoscedasticity**
+
+```{r}
+bptest(model_simple_adj)
+```
+
+- **p-value of Breusch-Pagan test is 0.007047.**
+
+**Shapiro-Wilk Test of Normality**
+
+```{r}
+shapiro.test(resid(model_simple_adj))
+```
+
+- **p-value of Shapiro-Wilk normality test is 1.361e-06.**
+
+**Fitted versus Residuals Plot and Q-Q Plots**
+
+```{r}
+diagnostics(model_simple_adj, testit = FALSE)
+```
+
+- **Above are Fitted versus Residuals Plot and Q-Q Plots.**
+
+### **Summary of the Adjusted Simple Model**
+
+The Adjusted Simple Model performs much better than the original Simple Model:
+
+- a boost in **p value** of **Breusch-Pagan Test of homoscedasticity** from 1.077e-08 to 0.007047
+ 
+- a boost in **p value** of **Shapiro-Wilk Test of Normality** from 2.509e-13 to 1.361e-06
+ 
+- an acceptable **LOOCV RMSE** value, indicating no overfitting issue
+ 
+- a large significance of each predictor
+
+We successfully maintained a better model here. The **p-values** have a significant increase. This gives us much more confidence to perform more adjustment over the model. Now we want to consider some further adjustment to this model.
+
+### **2.2.4 Including Paid in Interaction and Additive Variables with AIC Forward Searching**
+
+The adjusted simple model from **2.2.3** is very small, only with an interaction of variable$\ x_{2}$ and variable$\ x_{14}$. In order to better fit, we have to include more predictors. In section **2.2.1** and section **2.2.2**, we discovered the predictors of the simple model by looking at the scatter plot. In this section, we plan to start from our last model and include more predictors. The best way to expand such a model might be applying the searching function. Since we've noticed the importance of looking at the data before predicting, we look at the dataset again and find out some potential predictors. 
+
+We assume that the numeric variables such as the number of impressions from the users of the advertisement whether or not clicked open (variable$\ x_{9}$ and  `Facebook$Lifetime.Post.Total.Impressions`), or total interactions including comments, likes, and  shares(variable$\ x_{19}$ and `Total.Interactions`). Because of the exact collinearity between variables `Total.Interactions`, `comment`, `like`, and `share`. Finally, we decide put variables
+$\ x_{7}, \ x_{8}, \ x_{9}, \ x_{10}, \ x_{11}, \ x_{12}, \ x_{13}, \ x_{14}, \ x_{19}$ as additive variables into the stepping function. Recall in section **2.2.1**, we see the dummy variable `Paid`
+($x_{7}$) does not contribute a lot to the plot **People Like and Engage VS People Reach**, because Facebook generally pushes the advertisement to those who did not press the "like" button on this page before. However, we can not deny its potential interaction with other variable. So we also added its interaction with variables$\ x_{8}, \ x_{9}, \ x_{10}, \ x_{11}, \ x_{12}, \ x_{13}, \ x_{14}, \ x_{19}$ into the step function. We take off the log() from the response since it's simply an adjustment for normality test. Also, we choose **Akaike Information Criterion** rather than **Bayesian Information Criterion**. **BIC** has a larger penalty term to avoid over-fit. But we choose **AIC** because we would manually adjust the model. In this way, we want include more potential predictors.
+
+```{r}
+model_start = lm(x15 ~ x14:x2, data = Facebook_2)
+
+n = length(resid(model_start))
+
+model_additive = step(model_start, 
+             scope = x15 ~  x10 + x8 + x19 + x7 + x14:x2 +
+               x8:x7 + x9:x7 + x10:x7 + x11:x7 + x12:x7 + x13:x7 + x15:x7 + x19:x7 +
+               x11 + x12 + x13 + x14,
+              direction = "forward", trace = 0)
+
+summary(model_additive)$call
+
+```
+
+- **The model given by BIC forward searching has a formula of x15 ~ x10 + x8 + x14 + x19 + x11 + x12 + x7 + x14:x2 + x11:x7 + x15:x7 + x10:x7 + x8:x7 + x19:x7 + x12:x7**
+
+**Fitted versus Residuals Plot and Q-Q Plots**
+
+```{r}
+diagnostics(model_additive, testit = FALSE)
+```
+
+### **2.2.5 Adjusted Model**
+
+In section **2.2.4**, **BIC** forward searching gives us a model of formula x15 ~ x10 + x8 + x14 + x19 + x11 + x12 + x7 + x14:x2 + x11:x7 + x15:x7 + x10:x7 + x8:x7 + x19:x7 + x12:x7. We do not simply consider this as the best model including more variables. In fact, the **Q-Q Plot** indicates a reject in normality assumption with a extremely low **p-value**. Again we look at the dataset and significance of each predictor to adjust the model resulting from stepping. We performed the similar transformation as to the simple model and deleted some predictors. The model becomes:
+
+\[
+log(Y_{1}) = \beta_0 + \beta_{1} x_7 + \beta_{2} x_8 + \beta_3 x_{10} + \beta_4 x_{19} + \beta_5 x_{2Link} x_{14} + \beta_6 x_{2Photo} x_{14} + \beta_{7} x_{2Status} x_{14} + \beta_{8} x_7 x_8 + \beta_{9} x_7 x_{10} + \epsilon
+\]
+
+```{r}
+model_additive_adj = lm(log(x15) ~ x10 + x8 + x19 + x7 + x14:x2 + x8:x7 + x10:x7, data = Facebook_2)
+```
+
+### **Model Validation and Report of the Result**
+
+**LOOCV RMSE VS RMSE**
+
+```{r}
+sqrt(mean((resid(model_additive_adj) / (1 - hatvalues(model_additive_adj))) ^ 2))
+sqrt(mean(resid(model_additive_adj) ^ 2))
+```
+
+- **LOOCV RMSE is 0.267312.**
+- **RMSE is 0.1971784.**
+
+**Breusch-Pagan Test of Homoscedasticity**
+
+```{r}
+bptest(model_additive_adj)
+```
+
+- **p-value of Breusch-Pagan test is 0.0003186.**
+
+**Shapiro-Wilk Test of Normality**
+
+```{r}
+shapiro.test(resid(model_additive_adj))
+```
+
+- **p-value of Shapiro-Wilk normality test is 0.01416.**
+
+```{r}
+diagnostics(model_additive_adj, testit = FALSE)
+```
+
+
+### **Summary of the Model with more predictors**
+
+Afrer including more predictors and adjusting the model, we can now accept the null hypothesis of 
+**Shapiro-Wilk normality test** at a level of $\alpha = 0.01$. Also we have an acceptable **LOOCV RMSE** indicating no overfitting issue.
+
+### **2.2.6 More Interactions to Expand the Model with AIC Forward Searching**
+
+Similarly, we add more potential interactions in **AIC** forward searching, expecting better results. For example, we included variable  $x_{6}$, indicating which hour did the company makes the advertisement. Even though we did not include $x_{6}$ in the additive predictors, it might affect the response with other predictors. We believe that when to make a post is of great importance while advertising. Also, we add variable $x_{8}$ into consideration, which gives us the following **AIC** stepping code:
+
+```{r}
+model_start = lm(x15 ~ x10 + x8 + x19 + x7 + x14:x2 + x8:x7 + x10:x7, data = Facebook_2)
+
+n = length(resid(model_start))
+
+model_more_interaction = step(model_start, 
+                              scope = x15 ~ x10 + x8 + x19 + x7 + x14:x2 + x8:x7 + x10:x7 +
+                                x6:x8 + x6:x9 + x6:x10 + x6:x11 + x6:x12 + x6:x13 + x6:x14 + x6:x19 +
+                                x8:x9 + x8:x10 + x8:x11 + x8:x12 + x8:x13 + x8:x14 + x8:x19,
+                                direction = "forward", trace = 0)
+
+summary(model_more_interaction)$call
+```
+
+After finding the model with more interactions with **AIC** Forward Searching, we plan to adjust it and finalize our model.
+
+### **2.2.7 Finalized Model**
+
+Now that we've come a long way from building a large model. We first observed a "branch" feature and explored it to build a simple model. After adjusting the simple model, we expanded it with other predictors and interactions. Finally, we come to the last adjustment to this model, where
+
+\[
+log(Y_{1}) = \beta_0 + \beta_{1} x_7 + \beta_{2} x_8 + \beta_3 x_{10} + \beta_4 x_{19} + \beta_5 x_{2Link} x_{14} + \beta_6 x_{2Photo} x_{14} + \beta_{7} x_{2Status} x_{14} + \beta_{8} x_{2Video} x_{14} + \beta_9 x_6 x_{13} + \beta_{10} x_7 x_8 + \beta_{11} x_7 x_{10} + \beta_{12} x_8 x_{12} + \epsilon
+\]
+
+```{r}
+model_finalized = lm(log(x15) ~ x10 + x8 + x19 + x7 + x14:x2 + x8:x7 + x10:x7 + 
+     x8:x12 + x6:x13, data = Facebook_2)
+```
+
+### **Report of the Result**
+
+**LOOCV RMSE VS RMSE**
+
+```{r}
+sqrt(mean((resid(model_finalized) / (1 - hatvalues(model_finalized))) ^ 2))
+sqrt(mean(resid(model_finalized) ^ 2))
+```
+
+- **LOOCV RMSE is 0.2701618.**
+- **RMSE is 0.1909638.**
+
+**Breusch-Pagan Test of Homoscedasticity**
+
+```{r}
+bptest(model_finalized)
+```
+
+- **p-value of Breusch-Pagan test is 0.02351.**
+
+**Shapiro-Wilk Test of Normality**
+
+```{r}
+shapiro.test(resid(model_finalized))
+```
+
+- **p-value of Shapiro-Wilk normality test is 0.0143.**
+
+**Fitted versus Residuals Plot and Q-Q Plots**
+
+```{r}
+diagnostics(model_finalized, testit = FALSE)
+```
+
+- **Above are Fitted VS Residuals Plot and Normal Q-Q Plot.**
+
+**Multiple Collinearity**
+
+```{r}
+library(faraway)
+vif(model_finalized)
+```
+
+- **Above is the form of each parameter's vif value.**
+
+**Adjusted R-squared**
+
+```{r}
+summary(model_finalized)$adj.r.squared
+```
+
+- **Adjusted R-squared** is 0.8623019.
+
+### **Summary of the Finalized Model**
+
+The finalized model performs very well. Each set of value in model diagnostics comes in the acceptable range. By looking at the dataset and trying to intepretate each variable, we find out the potential predictors. By looking at the significance of each parameter, we finalized the model.
+
+## **2.3 Second Model**
+
+With the variable `Lifetime.Post.Consumers`($x_{11}$) as response, we fit another model. The process of fitting this model is similar to the first one, so we do not add a detailed explaination about how we come to the second model. The model is:
+
+\[
+log(Y_{2}) = \beta_0 + \beta_{1} x_10 + \beta_{2} x_13 + \beta_3 x_{14} + \beta_4 x_{2Link} x_{12} + \beta_5 x_{2Photo} x_{12} + 
+\beta_{6} x_{2Status} x_{12} + \beta_{7} x_{2Video} x_{12} + \beta_8 x_7 x_{9} + \beta_{9} x_7 x_10 + \beta_{10} x_7 x_{12} + \epsilon
+\]
+
+```{r}
+model_2 = lm(log(x11) ~ x10 + x14 + x13 + x12:x2 + x12:x7 + x7:x9 + x10:x7, data = Facebook_2)
+```
+
+### **Report of the Result**
+
+**LOOCV RMSE VS RMSE**
+
+```{r}
+sqrt(mean((resid(model_2) / (1 - hatvalues(model_2))) ^ 2))
+sqrt(mean(resid(model_2) ^ 2))
+```
+
+- **LOOCV RMSE is 0.2785019.**
+- **RMSE is 0.2445984.**
+
+**Breusch-Pagan Test of Homoscedasticity**
+
+```{r}
+bptest(model_2)
+```
+
+- **p-value of Breusch-Pagan test is 0.0108.**
+
+**Shapiro-Wilk Test of Normality**
+
+```{r}
+shapiro.test(resid(model_2))
+```
+
+- **p-value of Shapiro-Wilk normality test is 0.3536.**
+
+**Fitted versus Residuals Plot and Q-Q Plots**
+
+```{r}
+diagnostics(model_2, testit = FALSE)
+```
+
+- **Above are Fitted VS Residuals Plot and Normal Q-Q Plot.**
+
+**Multiple Collinearity**
+
+```{r}
+library(faraway)
+vif(model_2)
+```
+
+- **Above is the form of each parameter's vif value.**
+
+**Adjusted R-squared**
+
+```{r}
+summary(model_2)$adj.r.squared
+```
+
+- **Adjusted R-squared** is 0.8047883.
+
+## **2.4 Summary of the Methods**
+
+Let's review the Methods we applied when fitting the models.
+
+- STEP 1: First discover the "branch" feature in the pairwise correlation graph. 
+
+- STEP 2: Build a simple interaction model based on the two colored scatter plot.
+
+- STEP 3: Adjust the response according to the Fitted versus Residuals Plot. We chose $log(x_{15})$ as response variable, which greatly enhanced the **p-value** in **Shapiro-Wilk Test** and **Normal Q-Q Plot**.
+
+- STEP 4: Look at the significance of each predictor and the dataset, then adjust the predictors according to their t statistic and actual meaning.
+
+- STEP 5: Take variable `Paid` as a potential interactive variable and look at more additive variables. Apply the potential predictors into **AIC** forward searching. Then adjust the model with the methods similar in STEP 3.
+
+- STEP 6: Apply all possible interactions according to their feature in the dataset. Apply **AIC** forward searching.
+
+- STEP 7: Adjust and finalize the model.
+
+# **3 RESULTS**
+
+## **3.1 Results of the First Model**
+
+We adjusted the model for many times according to their **model diagnostics** results before we come to a general solution.
+
+\[
+log(Y_{1}) = \beta_0 + \beta_{1} x_7 + \beta_{2} x_8 + \beta_3 x_{10} + \beta_4 x_{19} + \beta_5 x_{2Link} x_{14} + \beta_6 x_{2Photo} x_{14} + \beta_{7} x_{2Status} x_{14} + \beta_{8} x_{2Video} x_{14} + \beta_9 x_6 x_{13} + \beta_{10} x_7 x_8 + \beta_{11} x_7 x_{10} + \beta_{12} x_8 x_{12} + \epsilon
+\]
+
+Then we look at the  **model diagnostics** again and evaluate the results,
+
+```{r}
+loocv_rmse = sqrt(mean((resid(model_finalized) / (1 - hatvalues(model_finalized))) ^ 2))
+bp_pval = unname(bptest(model_finalized)$p.val)
+shapiro_pval = unname(shapiro.test(resid(model_finalized))$p.val)
+adj_r_squared = summary(model_finalized)$adj.r.squared
+
+ans = data.frame(c("LOOCV RMSE", "p-value of BP test", "p-value of Shapiro-Wilk test", "Adjusted R Squared"),
+                c(loocv_rmse, bp_pval, shapiro_pval, adj_r_squared))
+colnames(ans) = c("Diagnostic","Value")
+knitr::kable(ans)
+```
+
+```{r}
+diagnostics(model_finalized, testit = FALSE)
+```
+
+```{r}
+vif(model_finalized)
+```
+
+
+- **P-value** of **Breusch-Pagan test** is 0.02351. We accept the null hypothesis at an $\alpha$ = 0.01.
+- **P-value** of **Shapiro-Wilk Test of Normality** is 0.0143. We accept the null hypothesis at an $\alpha$ = 0.01.
+- **LOOCV RMSE** is 0.2701618, **RMSE** is 0.1909638. These two values are rather low, we do not observe an overfitting issue here.
+- About **Multiple Collinearity**, few of the values from `vif()` function exceeds 5 but none of them exceeds 10. The model is still acceptable.
+- **Adjusted R-squared** is 0.8623019.
+
+## **3.2 Results of the Second Model**
+
+\[
+log(Y_{2}) = \beta_0 + \beta_{1} x_10 + \beta_{2} x_13 + \beta_3 x_{14} + \beta_4 x_{2Link} x_{12} + \beta_5 x_{2Photo} x_{12} + 
+\beta_{6} x_{2Status} x_{12} + \beta_{7} x_{2Video} x_{12} + \beta_8 x_7 x_{9} + \beta_{9} x_7 x_10 + \beta_{10} x_7 x_{12} + \epsilon
+\]
+
+Then we look at the  **model diagnostics** again and evaluate the results,
+
+```{r}
+loocv_rmse = sqrt(mean((resid(model_2) / (1 - hatvalues(model_2))) ^ 2))
+bp_pval = unname(bptest(model_2)$p.val)
+shapiro_pval = unname(shapiro.test(resid(model_2))$p.val)
+adj_r_squared = summary(model_2)$adj.r.squared
+
+ans = data.frame(c("LOOCV RMSE", "p-value of BP test", "p-value of Shapiro-Wilk test", "Adjusted R Squared"),
+                c(loocv_rmse, bp_pval, shapiro_pval, adj_r_squared))
+colnames(ans) = c("Diagnostic","Value")
+knitr::kable(ans)
+```
+
+```{r}
+diagnostics(model_2, testit = FALSE)
+```
+
+```{r}
+vif(model_2)
+```
+
+- **P-value** of **Breusch-Pagan test** is 0.0107957. We accept the null hypothesis at an $\alpha$ = 0.01.
+- **P-value** of **Shapiro-Wilk Test of Normality** is 0.3536383. We accept the null hypothesis at an $\alpha$ = 0.05.
+- **LOOCV RMSE** is 0.2785019, **RMSE** is 0.2445984. These two values are rather low, we do not observe an overfitting issue here.
+- About **Multiple Collinearity**, We observed an acceptable sets of value from `vif()` function, so we believe there is no significant multiple collinearity issue.
+- **Adjusted R-squared** is 0.8047883.
+
+## **3.3 Conclusion of the Results of both Models**
+
+In conclusion, in both models, we accept the normality assumption and the equal-variance assumption. We do not see an overfitting issue or a large multiple collinearity issue. Adjusted R squared values are also acceptable. Thus, we accept these two models as inferential models. And we will discuss it further in the next section.
+
+# **4 DISCUSSION**
+
+## **4.1 Inferences on the Primary Model**
+
+
+```{r}
+summary(model_finalized)
+```
+
++ **type**
+
+As we expected our data analysis can reflect facebook users' preference over advertising post, here, we are going to make certain conclusions about `type` based on our finalized model. One thing we noticed when fitting the model is that, we have a better results when we use `:` instead of `*` when describing the interaction between `type` and other variable. This discovery further confirms our though that the `type` of advertising post may not directly influence users' engagements but work **interactively** with other variables from this model. 
+
+It is crucial for companies to decide how they are going to present advertising posts to their potential consumers. By looking at the output of our finalized model, it is clear that `status` posts have the **highest coefficient** among four types of posts, which suggests `statues` have the largest impact on promoting the popularity of the post. To explain this finding, we believe that the majority of users barely pay attention to advertising posts when browsing social medias, therefore concise and short posts (`status`) are more effective in delievering marketing information. 
+
+Comparing the coefficients of rest three types, `photo` and `video` have roughly the same influence on users' engagements. Nevertheless, `link` has comparatively less impact on facebook users' engagement. This result is not totally unexpected since the majority of users must show the initiatory interests to the presented information, then click on the link to view the entire post; such a process screens out many users' engagements. While posts of `link` and `video` are able to include added information, we believe that users are more likely to favor simple, clear and straightforward posts. 
+
++ **Paid**
+
+Another variable that was included in our model is the `paid` variable. Before building the model, our group expected the `paid` variable having a huge influence on the popularity of the advertising post. Nevertheless, according to our model, paying for specific advertising post **may not** have significantly huge impact on capturing facebook users' interests. 
+
+Here, we are going to provide an assuming explanation to our results. Just like other social medias, facebook offers many businesses a platform to reach their targeted consumers. While companies design their advertisements with the goal of capturing consumers' attention, facebook will pick out the group of audiences who are most likely be interested in the company's product. For instance, in the case of cosmetics brand, facebook is able to make the paid message reach many female users who revealed interests in cosmestic products. By making the post a paid message on facebook, the company can enhace the **reachability** of posts, but **may not** effectively boost users' engagements.
+
+
+## **4.2 Inferences on the Supplementary Model**
+To establish a comprehensive understanding of the relationship between characteristics of online advertising posts and users' response, we built the supplementary model (second model). Unlike the former model, the supplementary uses `Facebook$Lifetime.Post.Consumers` variable as the response ($x_{11}$, indicating the number of people who clicked in an advertisement). Comparing to the response variable applied by the finalized model, $x_{11}$ **does not restrict to** users who "liked" the facebook page. 
+
+```{r}
+summary(model_2)
+```
+
+
+
+# Citation
+
+- S. Moro, P. Rita and B. Vala. Predicting social media performance metrics and evaluation of the impact on brand building: A data mining approach. Journal of Business Research, Elsevier, In press.
